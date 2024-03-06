@@ -2,6 +2,7 @@ package vinculum
 
 import (
 	"github.com/go-kid/ioc/configure"
+	"github.com/go-kid/ioc/scanner/meta"
 	"github.com/go-kid/ioc/syslog"
 	"github.com/google/go-cmp/cmp"
 	"github.com/samber/lo"
@@ -42,10 +43,21 @@ func (w *distributionCenter) Run() error {
 			for scope, originVal := range originValues {
 				if newVal := w.binder.Get(scope); !reflect.DeepEqual(originVal, newVal) {
 					diff := cmp.Diff(originVal, newVal)
-					syslog.Infof("distribution identified changes on: %s\nchanges:\n%s", scope, diff)
-					err = w.binder.PropInject(watchedScopes[scope])
-					if err != nil {
-						syslog.Panicf("refresh scope %s error: %v", scope, err)
+					syslog.Infof("distribution identified changes on scope '%s'\nchanges:\n%s", scope, diff)
+					nodes := watchedScopes[scope]
+					for _, node := range nodes {
+						sourceType := node.Source.Type
+						err = w.binder.PropInject([]*meta.Node{node})
+						if err != nil {
+							syslog.Panicf("refresh component %s config scope '%s' error: %v", sourceType.String(), scope, err)
+						}
+
+						if rsc, ok := node.Source.Value.Interface().(RefreshScopeComponent); ok {
+							err := rsc.OnChange(scope)
+							if err != nil {
+								syslog.Panicf("refresh component %s trigger OnChange scope '%s' error: %v", sourceType.String(), scope, err)
+							}
+						}
 					}
 				}
 			}

@@ -15,3 +15,7 @@ type RefreshScopeInjector interface {
 	injector.InjectProcessor
 	WatchedScopes() map[string][]*meta.Node
 }
+
+type RefreshScopeComponent interface {
+	OnChange(path string) error
+}
