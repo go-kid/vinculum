@@ -53,9 +53,9 @@ func (w *distributionCenter) Run() error {
 						}
 
 						if rsc, ok := node.Source.Value.Interface().(RefreshScopeComponent); ok {
-							err := rsc.OnChange(scope)
+							err := rsc.OnScopeChange(scope)
 							if err != nil {
-								syslog.Panicf("refresh component %s trigger OnChange scope '%s' error: %v", sourceType.String(), scope, err)
+								syslog.Panicf("refresh component %s trigger OnScopeChange scope '%s' error: %v", sourceType.String(), scope, err)
 							}
 						}
 					}

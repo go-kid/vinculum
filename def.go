@@ -17,5 +17,5 @@ type RefreshScopeInjector interface {
 }
 
 type RefreshScopeComponent interface {
-	OnChange(path string) error
+	OnScopeChange(path string) error
 }

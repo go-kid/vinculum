@@ -25,7 +25,7 @@ func (a *ApiConfig) Prefix() string {
 	return "Api"
 }
 
-func (t *TestAppComp) OnChange(path string) error {
+func (t *TestAppComp) OnScopeChange(path string) error {
 	switch path {
 	case t.ApiConfig.Prefix():
 		t.ApiConfigChange = true
