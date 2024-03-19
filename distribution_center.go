@@ -7,6 +7,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/samber/lo"
 	"reflect"
+	"sync"
 )
 
 type distributionCenter struct {
@@ -44,8 +45,11 @@ func (w *distributionCenter) refresh(spy Spy) {
 		if err != nil {
 			syslog.Panicf("refresh config error: %v", err)
 		}
+		wg := sync.WaitGroup{}
+		wg.Add(len(originValues))
 		for scope, originVal := range originValues {
 			go func(scope string, originVal any) {
+				defer wg.Done()
 				if newVal := w.binder.Get(scope); !reflect.DeepEqual(originVal, newVal) {
 					diff := cmp.Diff(originVal, newVal)
 					syslog.Infof("distribution identified changes on scope '%s'\nchanges:\n%s", scope, diff)
@@ -66,6 +70,7 @@ func (w *distributionCenter) refresh(spy Spy) {
 				}
 			}(scope, originVal)
 		}
+		wg.Wait()
 	}
 }
 
