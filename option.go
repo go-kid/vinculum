@@ -5,7 +5,7 @@ import (
 )
 
 var Refresher app.SettingOption = func(s *app.App) {
-	s.Scanner.AddTags([]string{Tag})
+	s.AddScanPolicies(&scanRefreshScopePolicy{})
 	injectProcessor := newInjector()
 	s.AddCustomizedInjectors(injectProcessor)
 	s.Register(NewDistributionCenter(s, injectProcessor))

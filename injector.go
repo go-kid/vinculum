@@ -49,8 +49,8 @@ func extractTag(d *meta.Node) (string, error) {
 	if configuration, ok := d.Value.Interface().(defination.Configuration); ok {
 		return configuration.Prefix(), nil
 	}
-	if value, ok := d.Field.Tag.Lookup(meta.PropTag); ok {
+	if value, ok := d.Field.Tag.Lookup(defination.PropTag); ok {
 		return value, nil
 	}
-	return "", fmt.Errorf("field %s.%s is not configuration", d.Source.Type.String(), d.Field.Name)
+	return "", fmt.Errorf("field %s is not configuration", d.ID())
 }

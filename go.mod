@@ -3,7 +3,7 @@ module github.com/go-kid/vinculum
 go 1.20
 
 require (
-	github.com/go-kid/ioc v1.3.2
+	github.com/go-kid/ioc v1.4.1
 	github.com/google/go-cmp v0.5.9
 	github.com/samber/lo v1.38.1
 	github.com/stretchr/testify v1.8.2
@@ -15,7 +15,6 @@ require (
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
-	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/pelletier/go-toml/v2 v2.0.6 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/spf13/afero v1.9.3 // indirect

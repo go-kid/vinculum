@@ -37,17 +37,16 @@ func (t *TestAppComp) OnScopeChange(path string) error {
 
 func initTestComp(t *testing.T, tapp any) *tSpy {
 	var (
-		config = `
+		config = []byte(`
 Api:
   host: localhost:8080
 Proxy:
   url: localhost:3333
-`
+`)
 		spy = &tSpy{}
 	)
 	ioc.RunTest(t,
-		app.SetConfig(config),
-		app.SetConfigLoader(loader.NewRawLoader()),
+		app.SetConfigLoader(loader.NewRawLoader(config)),
 		app.SetComponents(tapp, spy),
 		vinculum.Refresher,
 	)

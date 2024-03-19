@@ -10,10 +10,11 @@ import (
 )
 
 type distributionCenter struct {
-	binder     configure.Binder
-	rsInjector RefreshScopeInjector
-	Spy        Spy `wire:""`
-	scopes     []string
+	binder        configure.Binder
+	rsInjector    RefreshScopeInjector
+	Spies         []Spy `wire:""`
+	watchedScopes map[string][]*meta.Node
+	scopes        []string
 }
 
 func NewDistributionCenter(binder configure.Binder, injector RefreshScopeInjector) any {
@@ -28,42 +29,50 @@ func (w *distributionCenter) Order() int {
 }
 
 func (w *distributionCenter) Run() error {
-	watchedScopes := w.rsInjector.WatchedScopes()
-	w.scopes = lo.Keys(watchedScopes)
-	go func(ch <-chan []byte) {
-		for changeBytes := range ch {
-			syslog.Infof("config spy receive updated config:\n%s", string(changeBytes))
-			originValues := cloneMap(lo.SliceToMap(w.scopes, func(scope string) (string, any) {
-				return scope, w.binder.Get(scope)
-			}))
-			err := w.binder.SetConfig(changeBytes)
-			if err != nil {
-				syslog.Panicf("refresh config error: %v", err)
-			}
-			for scope, originVal := range originValues {
+	w.watchedScopes = w.rsInjector.WatchedScopes()
+	w.scopes = lo.Keys(w.watchedScopes)
+	for _, spy := range w.Spies {
+		go w.refresh(spy)
+	}
+	return nil
+}
+
+func (w *distributionCenter) refresh(spy Spy) {
+	for handler := range spy.Change() {
+		originValues := w.currentCopy()
+		err := handler(w.binder)
+		if err != nil {
+			syslog.Panicf("refresh config error: %v", err)
+		}
+		for scope, originVal := range originValues {
+			go func(scope string, originVal any) {
 				if newVal := w.binder.Get(scope); !reflect.DeepEqual(originVal, newVal) {
 					diff := cmp.Diff(originVal, newVal)
 					syslog.Infof("distribution identified changes on scope '%s'\nchanges:\n%s", scope, diff)
-					nodes := watchedScopes[scope]
+					nodes := w.watchedScopes[scope]
 					for _, node := range nodes {
-						sourceType := node.Source.Type
 						err = w.binder.PropInject([]*meta.Node{node})
 						if err != nil {
-							syslog.Panicf("refresh component %s config scope '%s' error: %v", sourceType.String(), scope, err)
+							syslog.Panicf("refresh component %s config scope '%s' error: %v", node.Holder.Meta.ID(), scope, err)
 						}
 
-						if rsc, ok := node.Source.Value.Interface().(RefreshScopeComponent); ok {
+						if rsc, ok := node.Holder.Meta.Raw.(RefreshScopeComponent); ok {
 							err := rsc.OnScopeChange(scope)
 							if err != nil {
-								syslog.Panicf("refresh component %s trigger OnScopeChange scope '%s' error: %v", sourceType.String(), scope, err)
+								syslog.Panicf("refresh component %s trigger OnScopeChange scope '%s' error: %v", node.Holder.Meta.ID(), scope, err)
 							}
 						}
 					}
 				}
-			}
+			}(scope, originVal)
 		}
-	}(w.Spy.Change())
-	return nil
+	}
+}
+
+func (w *distributionCenter) currentCopy() map[string]any {
+	return cloneMap(lo.SliceToMap(w.scopes, func(scope string) (string, any) {
+		return scope, w.binder.Get(scope)
+	}))
 }
 
 func cloneMap(m map[string]any) map[string]any {
