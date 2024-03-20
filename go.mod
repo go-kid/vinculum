@@ -3,7 +3,7 @@ module github.com/go-kid/vinculum
 go 1.20
 
 require (
-	github.com/go-kid/ioc v1.4.1
+	github.com/go-kid/ioc v1.4.2
 	github.com/google/go-cmp v0.5.9
 	github.com/samber/lo v1.38.1
 	github.com/stretchr/testify v1.8.2

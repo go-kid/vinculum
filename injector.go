@@ -2,9 +2,9 @@ package vinculum
 
 import (
 	"fmt"
-	"github.com/go-kid/ioc/defination"
 	"github.com/go-kid/ioc/registry"
 	"github.com/go-kid/ioc/scanner/meta"
+	"github.com/go-kid/ioc/syslog"
 )
 
 type refreshScopeInjector struct {
@@ -30,14 +30,12 @@ func (i *refreshScopeInjector) Filter(d *meta.Node) bool {
 }
 
 func (i *refreshScopeInjector) Inject(_ registry.Registry, d *meta.Node) error {
-	if d.TagVal == "" {
-		configPrefix, err := extractTag(d)
-		if err != nil {
-			return err
-		}
-		d.TagVal = configPrefix
+	err := bindTagVal(d)
+	if err != nil {
+		return err
 	}
 	i.watchScopes[d.TagVal] = append(i.watchScopes[d.TagVal], d)
+	syslog.Tracef("vinculum watched config: %s", d.TagVal)
 	return nil
 }
 
@@ -45,12 +43,14 @@ func (i *refreshScopeInjector) WatchedScopes() map[string][]*meta.Node {
 	return i.watchScopes
 }
 
-func extractTag(d *meta.Node) (string, error) {
-	if configuration, ok := d.Value.Interface().(defination.Configuration); ok {
-		return configuration.Prefix(), nil
+func bindTagVal(d *meta.Node) error {
+	if d.TagVal != "" {
+		return nil
 	}
-	if value, ok := d.Field.Tag.Lookup(defination.PropTag); ok {
-		return value, nil
+	nodes := d.Holder.Meta.GetConfigurationNodes()
+	if len(nodes) == 0 {
+		return fmt.Errorf("field %s is not configuration", d.ID())
 	}
-	return "", fmt.Errorf("field %s is not configuration", d.ID())
+	d.TagVal = nodes[0].TagVal
+	return nil
 }
