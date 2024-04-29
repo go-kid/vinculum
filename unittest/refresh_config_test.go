@@ -23,6 +23,8 @@ func (c *Config) Prefix() string {
 	return "Test.refresh.structConfig"
 }
 
+func (c *Config) RefreshScope() {}
+
 func initTest(t *testing.T, tapp any, ops ...app.SettingOption) *tSpy {
 	var (
 		config = []byte(`
@@ -39,10 +41,15 @@ Test:
 		spy = &tSpy{}
 	)
 	ioc.RunTest(t,
+		app.LogDebug,
 		app.SetConfigLoader(loader.NewRawLoader(config)),
-		app.SetComponents(tapp, spy),
-		vinculum.Refresher,
-		app.Options(ops...),
+		app.SetComponents(tapp, spy, vinculum.New()),
+		//vinculum.Refresher,
+		func(s *app.App) {
+			for _, op := range ops {
+				op(s)
+			}
+		},
 	)
 	return spy
 }
@@ -143,56 +150,20 @@ Test:
 		})
 	})
 
-	t.Run("TestSpecifyScope", func(t *testing.T) {
-		type TestApp struct {
-			StringProp   string  `prop:"Test.refresh.stringProp" refreshScope:"Refresh.stringProp"`
-			StructConfig *Config `refreshScope:"Refresh.structConfig"`
-		}
-		var tapp = &TestApp{}
-		spy := initTest(t, tapp)
-		spy.Update([]byte(`
-Test:
-  refresh:
-    structConfig:
-      scopeS: "hello"
-      scopeI: 20
-      scopeL: [A,B,C,D]
-      scopeST:
-        fieldA: "world"
-    stringProp: foo
-Refresh:
-  structConfig:
-    scopeS: "hello1"
-    scopeI: 20100
-    scopeL: [B,C,D,E]
-    scopeST:
-      fieldA: "world1"
-  stringProp: bar
-`))
-		time.Sleep(time.Millisecond * 10)
-		assert.Equal(t, "bar", tapp.StringProp)
-		assert.Equal(t, "hello1", tapp.StructConfig.ScopeS)
-		assert.Equal(t, int64(20100), tapp.StructConfig.ScopeI)
-		assert.Equal(t, []string{"B", "C", "D", "E"}, tapp.StructConfig.ScopeL)
-		assert.Equal(t, "world1", tapp.StructConfig.ScopeST.FieldA)
-	})
-
 	t.Run("TestExpressionConfig", func(t *testing.T) {
 		type T struct {
 			StringProp string `prop:"Test.refresh.${Field:stringProp}" refreshScope:""`
-			ScopeS     string `prop:"Test.refresh.${Field:stringProp}" refreshScope:"Test.refresh.${Field:structConfig.scopeS}"`
 		}
 		var tapp = &T{}
 		spy := initTest(t, tapp, app.LogTrace)
 		assert.Equal(t, "foo", tapp.StringProp)
-		assert.Equal(t, "foo", tapp.ScopeS)
+
 		spy.UpdateByPath("Test.refresh.stringProp", "bar")
 		time.Sleep(time.Millisecond * 10)
 		assert.Equal(t, "bar", tapp.StringProp)
-		assert.Equal(t, "foo", tapp.ScopeS)
-		spy.UpdateByPath("Test.refresh.structConfig.scopeS", "world")
+
+		spy.UpdateByPath("Field", "structConfig.scopeS")
 		time.Sleep(time.Millisecond * 10)
-		assert.Equal(t, "bar", tapp.StringProp)
-		assert.Equal(t, "world", tapp.ScopeS)
+		assert.Equal(t, "hello", tapp.StringProp)
 	})
 }

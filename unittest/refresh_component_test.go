@@ -47,8 +47,7 @@ Proxy:
 	)
 	ioc.RunTest(t,
 		app.SetConfigLoader(loader.NewRawLoader(config)),
-		app.SetComponents(tapp, spy),
-		vinculum.Refresher,
+		app.SetComponents(tapp, spy, vinculum.New()),
 	)
 	return spy
 }

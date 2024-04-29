@@ -1,93 +1,133 @@
 package vinculum
 
 import (
+	"github.com/go-kid/ioc/component_definition"
 	"github.com/go-kid/ioc/configure"
-	"github.com/go-kid/ioc/scanner/meta"
+	"github.com/go-kid/ioc/container"
+	"github.com/go-kid/ioc/container/processors"
 	"github.com/go-kid/ioc/syslog"
+	"github.com/go-kid/ioc/util/framework_helper"
+	"github.com/go-kid/properties"
 	"github.com/google/go-cmp/cmp"
-	"github.com/samber/lo"
-	"reflect"
-	"sync"
+	"github.com/pkg/errors"
 )
 
 type distributionCenter struct {
-	binder        configure.Binder
-	rsInjector    RefreshScopeInjector
-	Spies         []Spy `wire:""`
-	watchedScopes map[string][]*meta.Node
-	scopes        []string
+	processors.DefaultInstantiationAwareComponentPostProcessor
+	Logger                  syslog.Logger `logger:"Vinculum"`
+	tspp                    *processors.DefaultTagScanDefinitionRegistryPostProcessor
+	binder                  configure.Binder
+	Spies                   []Spy `wire:""`
+	watchedScopes           map[string][]func() error
+	scopes                  []string
+	ch                      chan properties.Properties
+	configurationProcessors []container.InstantiationAwareComponentPostProcessor
 }
 
-func NewDistributionCenter(binder configure.Binder, injector RefreshScopeInjector) any {
+func New() any {
 	return &distributionCenter{
-		binder:     binder,
-		rsInjector: injector,
+		tspp: &processors.DefaultTagScanDefinitionRegistryPostProcessor{
+			NodeType: component_definition.PropertyTypeConfiguration,
+			Tag:      Tag,
+			ExtractHandler: func(meta *component_definition.Meta, field *component_definition.Field) (tag, tagVal string, ok bool) {
+				if _, infer := meta.Raw.(RefreshScopeConfiguration); infer {
+					tag = Tag
+					ok = true
+				}
+				return
+			},
+			Required: false,
+		},
+		watchedScopes: make(map[string][]func() error),
+		ch:            make(chan properties.Properties, 1),
+		configurationProcessors: framework_helper.SortOrderedComponents([]container.InstantiationAwareComponentPostProcessor{
+			processors.NewConfigQuoteAwarePostProcessors(),
+			processors.NewExpressionTagAwarePostProcessors(),
+			processors.NewPropertiesAwarePostProcessors(),
+			processors.NewValueAwarePostProcessors(),
+			processors.NewValidateAwarePostProcessors(),
+		}),
 	}
 }
 
-func (w *distributionCenter) Order() int {
-	return 0
-}
-
-func (w *distributionCenter) Run() error {
-	w.watchedScopes = w.rsInjector.WatchedScopes()
-	w.scopes = lo.Keys(w.watchedScopes)
-	for _, spy := range w.Spies {
-		go w.refresh(spy)
+func (w *distributionCenter) PostProcessComponentFactory(f container.Factory) error {
+	w.binder = f.GetConfigure()
+	for _, processor := range w.configurationProcessors {
+		if cfp, ok := processor.(container.ComponentFactoryPostProcessor); ok {
+			err := cfp.PostProcessComponentFactory(f)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
-func (w *distributionCenter) refresh(spy Spy) {
-	for handler := range spy.Change() {
-		originValues := w.currentCopy()
-		err := handler(w.binder)
-		if err != nil {
-			syslog.Panicf("refresh config error: %v", err)
-		}
-		wg := sync.WaitGroup{}
-		wg.Add(len(originValues))
-		for scope, originVal := range originValues {
-			go func(scope string, originVal any) {
-				defer wg.Done()
-				if newVal := w.binder.Get(scope); !reflect.DeepEqual(originVal, newVal) {
-					diff := cmp.Diff(originVal, newVal)
-					syslog.Infof("distribution identified changes on scope '%s'\nchanges:\n%s", scope, diff)
-					nodes := w.watchedScopes[scope]
-					for _, node := range nodes {
-						err = w.binder.PropInject([]*meta.Node{node})
-						if err != nil {
-							syslog.Panicf("refresh component %s config scope '%s' error: %v", node.Holder.Meta.ID(), scope, err)
-						}
+func (w *distributionCenter) PostProcessDefinitionRegistry(registry container.DefinitionRegistry, component any, componentName string) error {
+	return w.tspp.PostProcessDefinitionRegistry(registry, component, componentName)
+}
 
-						if rsc, ok := node.Holder.Meta.Raw.(RefreshScopeComponent); ok {
-							err := rsc.OnScopeChange(scope)
-							if err != nil {
-								syslog.Panicf("refresh component %s trigger OnScopeChange scope '%s' error: %v", node.Holder.Meta.ID(), scope, err)
-							}
-						}
+func (w *distributionCenter) PostProcessAfterInstantiation(component any, componentName string) (bool, error) {
+	return true, nil
+}
+
+func (w *distributionCenter) PostProcessProperties(properties []*component_definition.Property, component any, componentName string) ([]*component_definition.Property, error) {
+	rsc, ok := component.(RefreshScopeComponent)
+	for _, property := range properties {
+		property := property
+		for path, _ := range property.Configurations {
+			path := path
+			w.watchedScopes[path] = append(w.watchedScopes[path], func() error {
+				for _, processor := range w.configurationProcessors {
+					_, err := processor.PostProcessProperties([]*component_definition.Property{property}, component, componentName)
+					if err != nil {
+						return err
 					}
 				}
-			}(scope, originVal)
-		}
-		wg.Wait()
-	}
-}
-
-func (w *distributionCenter) currentCopy() map[string]any {
-	return cloneMap(lo.SliceToMap(w.scopes, func(scope string) (string, any) {
-		return scope, w.binder.Get(scope)
-	}))
-}
-
-func cloneMap(m map[string]any) map[string]any {
-	cloneM := make(map[string]any)
-	for k, v := range m {
-		if mv, ok := v.(map[string]any); ok {
-			cloneM[k] = cloneMap(mv)
-		} else {
-			cloneM[k] = v
+				w.Logger.Debugf("refreshed configuration '%s'", property)
+				if ok {
+					err := rsc.OnScopeChange(path)
+					if err != nil {
+						return errors.Wrapf(err, "invoke %s.OnScopeChange(%s)", componentName, path)
+					}
+					w.Logger.Debugf("invoke '%s'.OnScopeChange(%s)", componentName, path)
+				}
+				return nil
+			})
 		}
 	}
-	return cloneM
+	return properties, nil
+}
+
+func (w *distributionCenter) Init() error {
+	for _, spy := range w.Spies {
+		spy.RegisterChannel(w.ch)
+	}
+	go w.refresh()
+	return nil
+}
+
+func (w *distributionCenter) refresh() {
+	for prop := range w.ch {
+		for scope, processHandlers := range w.watchedScopes {
+			newVal, ok := prop.Get(scope)
+			if !ok {
+				continue
+			}
+			originVal := w.binder.Get(scope)
+			diff := cmp.Diff(originVal, newVal)
+			if diff == "" {
+				continue
+			}
+			w.Logger.Infof("identified configuration changes on scope '%s' changes:\n%s", scope, diff)
+			w.binder.Set(scope, newVal)
+
+			for _, handler := range processHandlers {
+				err := handler()
+				if err != nil {
+					w.Logger.Panicf("refresh property config scope '%s' error: %v", scope, err)
+				}
+			}
+		}
+	}
 }

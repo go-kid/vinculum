@@ -1,21 +1,16 @@
 package unittest
 
 import (
-	"github.com/go-kid/ioc/configure"
-	"github.com/go-kid/vinculum"
+	"github.com/go-kid/properties"
+	"gopkg.in/yaml.v3"
 )
 
 type tSpy struct {
-	ch chan vinculum.UpdateHandler
+	ch chan<- properties.Properties
 }
 
-func (s *tSpy) Change() <-chan vinculum.UpdateHandler {
-	return s.ch
-}
-
-func (s *tSpy) Init() error {
-	s.ch = make(chan vinculum.UpdateHandler, 0)
-	return nil
+func (s *tSpy) RegisterChannel(ch chan<- properties.Properties) {
+	s.ch = ch
 }
 
 func (s *tSpy) Weight() int {
@@ -23,19 +18,16 @@ func (s *tSpy) Weight() int {
 }
 
 func (s *tSpy) Update(c []byte) {
-	s.ch <- func(binder configure.Binder) error {
-		return binder.SetConfig(c)
+	p := properties.Properties{}
+	err := yaml.Unmarshal(c, &p)
+	if err != nil {
+		panic(err)
 	}
+	s.ch <- p
 }
 
 func (s *tSpy) UpdateByPath(path string, val any) {
-	s.ch <- func(binder configure.Binder) error {
-		binder.Set(path, val)
-		return nil
-	}
-}
-
-func (s *tSpy) Close() error {
-	close(s.ch)
-	return nil
+	p := properties.New()
+	p.Set(path, val)
+	s.ch <- p
 }

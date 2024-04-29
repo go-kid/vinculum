@@ -1,20 +1,13 @@
 package vinculum
 
 import (
-	"github.com/go-kid/ioc/configure"
-	"github.com/go-kid/ioc/injector"
-	"github.com/go-kid/ioc/scanner/meta"
+	"github.com/go-kid/properties"
 )
 
 const Tag = "refreshScope"
 
 type RefreshScopeConfiguration interface {
-	RefreshScope() string
-}
-
-type RefreshScopeInjector interface {
-	injector.InjectProcessor
-	WatchedScopes() map[string][]*meta.Node
+	RefreshScope()
 }
 
 type RefreshScopeComponent interface {
@@ -22,7 +15,5 @@ type RefreshScopeComponent interface {
 }
 
 type Spy interface {
-	Change() <-chan UpdateHandler
+	RegisterChannel(ch chan<- properties.Properties)
 }
-
-type UpdateHandler func(binder configure.Binder) error
